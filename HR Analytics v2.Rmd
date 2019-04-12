@@ -2,8 +2,8 @@
 title: "HR Analytics v2"
 author: "Shweta Tyagi"
 date: "12/04/2019"
-output: html_document:
-  keep_md: true
+output:  rmarkdown::github_document
+ 
 ---
 
 ```{r}
