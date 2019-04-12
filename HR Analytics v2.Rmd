@@ -1,0 +1,507 @@
+---
+title: "HR Analytics v2"
+author: "Shweta Tyagi"
+date: "12/04/2019"
+output: html_document:
+  keep_md: true
+---
+
+```{r}
+# Load the Training Data and Test Data
+HRTrain <- read.csv(file.choose(), header= TRUE)
+
+# Load Libraries
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(caTools)
+library(gmodels)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(ROSE)
+library(e1071)
+
+# Exploratory Data Analysis
+## There are 54,808 observations and 14 variables in the Train Data and 23,490 observations and 13 variables in the test data
+str(HRTrain)
+summary(HRTrain)
+
+## Dependent Variable : is_promoted
+### Only 8.51% of employees were promoted.
+HRTrain$is_promoted<-as.factor(HRTrain$is_promoted)
+summary(HRTrain$is_promoted)
+prop.table(table(HRTrain$is_promoted))
+ggplot(data=HRTrain, aes(x=is_promoted))+geom_bar(fill="blue")+geom_text(stat="count", aes(label=..count..), vjust=-1)+labs(title="No of Promotions")
+
+## Independent Variable: Department 
+### There are 9 departments with Sales and Marketing, Operations, Procurement and Technology being the largest ones.
+unique(HRTrain$department)
+summary(HRTrain$department)
+prop.table(table(HRTrain$department))
+### Lets look at the relationship between the dependent variable and 'Department'using a Chi Square Test. P value is less than 0. 
+CrossTable(HRTrain$is_promoted, HRTrain$department, chisq = TRUE)
+ggplot(data=HRTrain, aes(x=department))+geom_bar(aes(y=(..count..)/sum(..count..)), fill="blue")+facet_wrap(~is_promoted)+geom_text(aes(y=((..count..)/sum(..count..)),label=scales::percent((..count..)/sum(..count..))),stat="count",vjust=-0.25)+scale_y_continuous(labels=scales::percent)+ylab("Proportion of employees in each department")
+ggplot(data=HRTrain, aes(x=department))+geom_bar(fill="blue")+geom_text(stat="count", aes(label=..count..), vjust=-1)+labs(title="Number of Employees in each Department")
+ggplot(data=HRTrain, aes(x=is_promoted))+geom_bar(fill="blue")+facet_wrap(~department)+geom_text(aes(label=..count..), stat="count", vjust=-1)
+ggplot(data=HRTrain, aes(x=department))+geom_bar(fill="blue")+facet_wrap(~is_promoted)+geom_text(aes(label=..count..), stat="count", vjust=-1)
+
+## Independent Variable : Region. There are 34 levels for the variable 'region'. 
+str(HRTrain$region)
+prop.table(table(HRTrain$region))
+### Lets look at the relationship between the dependent variable and 'Region'using a Chi Square Test. P value is less than 0. 
+CrossTable(HRTrain$is_promoted, HRTrain$region, chisq = TRUE)
+### We will reduce the number of levels of Region variable from 34 to 3 : Low (< 3%), Medium(3%-8%), High(>8%)
+### Low-18,33,34,3,21,9,12,24,1,30,10,8,5,6,17,25,14,20,19,32,29,23,28,11,16 -Medium 27,31,26,13,15,7,4 -High 2,22
+levels(HRTrain$region)[levels(HRTrain$region)=='region_2'] <- 'High'
+levels(HRTrain$region)[levels(HRTrain$region)=='region_22'] <- 'High'
+levels(HRTrain$region)[levels(HRTrain$region)=='region_15' | levels(HRTrain$region)=="region_7"] <- 'Medium'
+levels(HRTrain$region)[levels(HRTrain$region)=='region_27' | levels(HRTrain$region)=="region_31" | levels(HRTrain$region)=="region_4"] <- 'Medium'
+levels(HRTrain$region)[levels(HRTrain$region)=='region_26' | levels(HRTrain$region)=="region_13"] <- 'Medium'
+levels(HRTrain$region)[levels(HRTrain$region)=='region_23' | levels(HRTrain$region)=="region_28" | levels(HRTrain$region)=="region_11" | levels(HRTrain$region)=="region_16"] <- 'Low'
+levels(HRTrain$region)[levels(HRTrain$region)=='region_1' | levels(HRTrain$region)=="region_30" | levels(HRTrain$region)=="region_10" | levels(HRTrain$region)=="region_8" | levels(HRTrain$region)=="region_5" | levels(HRTrain$region)=="region_6" |levels(HRTrain$region)=="region_17"|levels(HRTrain$region)=="region_25" ] <- 'Low'
+levels(HRTrain$region)[levels(HRTrain$region)=='region_18' | levels(HRTrain$region)=="region_33" | levels(HRTrain$region)=="region_34" | levels(HRTrain$region)=="region_3" | levels(HRTrain$region)=="region_21" | levels(HRTrain$region)=="region_9" |levels(HRTrain$region)=="region_12"|levels(HRTrain$region)=="region_24" ] <- 'Low'
+levels(HRTrain$region)[levels(HRTrain$region)=='region_14' | levels(HRTrain$region)=="region_20" | levels(HRTrain$region)=="region_19" | levels(HRTrain$region)=="region_29" | levels(HRTrain$region)=="region_32"] <- 'Low'
+ggplot(data=HRTrain, aes(x=region))+geom_bar(fill="blue")+geom_text(stat="count",aes(label=..count..), vjust=-1)+labs(title="Employees per region")
+ggplot(data=HRTrain, aes(x=region))+geom_bar(fill="blue")+geom_text(stat="count",aes(label=..count..), vjust=-1)+facet_wrap(~is_promoted)
+ggplot(data=HRTrain, aes(x=region))+geom_bar(fill="blue")+geom_text(stat="count",aes(label=..count..), vjust=-1)+facet_wrap(~department)
+
+## Independent Variable : Education. Four levels: Others, Secondary, Bachelors and Masters
+unique(HRTrain$education)
+summary(HRTrain$education)
+### There are in total 2409 observations with missing education values. We will label it as a fourth category i.e."Others"
+levels(HRTrain$education)[levels(HRTrain$education)==''] <- 'NA'
+levels(HRTrain$education)[levels(HRTrain$education)=='NA'] <- 'Others'
+### Let's check for the relation between the dependent variable and 'Education'. P value is less than 0. 
+CrossTable(HRTrain$is_promoted, HRTrain$education, chisq = TRUE)
+ggplot(data=HRTrain, aes(x=education, fill=department))+geom_bar()+facet_wrap(~is_promoted)+geom_text(stat="count", aes(label=..count..),position = position_stack(vjust = 0.5), size=2)
+ggplot(data=HRTrain, aes(x=education))+geom_bar(fill="blue")+geom_text(stat="count", aes(label=..count..), vjust=-1)+labs(title="Employees by Education")
+ggplot(data=HRTrain, aes(x=education))+geom_bar(fill="blue")+geom_text(stat="count", aes(label=..count..),vjust=-1)+facet_wrap(~is_promoted)
+
+## Independent Variable : Gender. About 70% are men and remaining women
+summary(HRTrain$gender)
+prop.table(table(HRTrain$gender))
+prop.table(table(HRTrain$gender, HRTrain$education),1)
+prop.table(table(HRTrain$gender, HRTrain$is_promoted),1)
+### Lets check for the association between the dependent variable and 'Gender'. The p value is less than 0.
+CrossTable(HRTrain$gender,HRTrain$is_promoted, chisq = TRUE)
+ggplot(data=HRTrain, aes(x=gender))+geom_bar(fill="blue")+geom_text(stat="count",aes(label=..count..),vjust=-1.6)+labs(title="Employees by Gender")
+ggplot(data=HRTrain, aes(x=gender, fill=education))+geom_bar()+geom_text(stat="count",aes(label=..count..),vjust=-1.6)+labs(title="Employees by Gender in each Department")
+ggplot(data=HRTrain, aes(x=gender))+geom_bar(fill="blue")+facet_wrap(~is_promoted)+geom_text(stat="count",aes(label=..count..),vjust=-1.6)+labs(title="Employees by Gender and Promotion status")
+
+## Independent Variable: Recruitment Channel. Three levels : Others, Referred and Sourcing
+summary(HRTrain$recruitment_channel)
+prop.table(table(HRTrain$recruitment_channel))
+### Lets check for the association between the dependent variable and 'Recruitment Channel'. The p value is less than 0.
+CrossTable(HRTrain$recruitment_channel,HRTrain$is_promoted, chisq = TRUE)
+ggplot(data=HRTrain, aes(x=recruitment_channel))+geom_bar(fill="blue")+geom_text(stat="count",aes(label=..count..),vjust=-1.6)+labs(title="Employees by Recruitment Channel")
+ggplot(data=HRTrain, aes(x=recruitment_channel))+geom_bar(fill="blue")+facet_wrap(~is_promoted)+geom_text(stat="count",aes(label=..count..),vjust=-1.6)+labs(title="Employees by Recruitment Channel and Promotion Status")
+ggplot(data=HRTrain, aes(x=recruitment_channel, fill=education))+geom_bar()+geom_text(stat="count",aes(label=..count..),vjust=-1.6)+labs(title="Employees by Department and Recruitment Channel")
+
+## Indepdent Variable: Number of Trainings. There are 10 levels. We will further reduce it to 3 levels : 1, 2, >2
+str(HRTrain$no_of_trainings)
+HRTrain$no_of_trainings<- as.factor(HRTrain$no_of_trainings)
+summary(HRTrain$no_of_trainings)
+### Lets check for the association between the dependent variable and 'Number of Trainings'. The p value is less than 0.
+CrossTable(HRTrain$no_of_trainings,HRTrain$is_promoted, chisq = TRUE)
+levels(HRTrain$no_of_trainings)[levels(HRTrain$no_of_trainings)=='3' | levels(HRTrain$no_of_trainings)=='4'| levels(HRTrain$no_of_trainings)=='5'] <- '>2'
+levels(HRTrain$no_of_trainings)[levels(HRTrain$no_of_trainings)=='6' | levels(HRTrain$no_of_trainings)=='7'| levels(HRTrain$no_of_trainings)=='8'| levels(HRTrain$no_of_trainings)=='9'| levels(HRTrain$no_of_trainings)=='10'] <- '>2'
+ggplot(data=HRTrain, aes(x=no_of_trainings))+geom_bar(fill="blue")+geom_text(stat="count",aes(label=..count..),vjust=-1.6)+labs(title="Number of employees who attended n trainings")
+ggplot(data=HRTrain, aes(x=no_of_trainings))+geom_bar(fill="blue")+facet_wrap(~is_promoted)+geom_text(stat="count",aes(label=..count..),vjust=-1.6)+labs(title="Number of employees who attended trainings by promotion status")
+
+## Independent Variable : Age. Right skewed variable. 
+str(HRTrain$age)
+summary(HRTrain$age)
+ggplot(data=HRTrain, aes(x=age))+geom_density()
+### We will transform the continuous variable 'age' into categorical variable 'Age Description' with four levels
+HRTrain$agedesc[HRTrain$age > 45] <- "Leadership"
+HRTrain$agedesc[HRTrain$age > 35 & HRTrain$age <= 45] <- "Senior"
+HRTrain$agedesc[HRTrain$age > 30 & HRTrain$age <= 35] <- "Middle"
+HRTrain$agedesc[HRTrain$age >= 20 & HRTrain$age <= 30] <- "Young"
+unique(HRTrain$agedesc)
+sum(is.na(HRTrain$agedesc))
+ggplot(data=HRTrain, aes(x=agedesc))+geom_bar(fill="blue")+geom_text(stat="count",aes(label=..count..),vjust=-1.6)+labs(title="Breakup of employees by Age")
+
+## Previous Year Rating. We convert it into factor variable. Has 5 levels with 4124 missing observations. We use mode for missing value imputation
+str(HRTrain$previous_year_rating)
+HRTrain$previous_year_rating<-as.factor(HRTrain$previous_year_rating)
+summary(HRTrain$previous_year_rating)
+HRTrain$previous_year_rating[HRTrain$previous_year_rating==""]<-NA
+val<-unique(HRTrain$previous_year_rating[!is.na(HRTrain$previous_year_rating)])
+mode<-val[which.max(tabulate(match(HRTrain$previous_year_rating, val)))]
+HRTrain$previous_year_rating[is.na(HRTrain$previous_year_rating)]<-mode
+ggplot(data=HRTrain, aes(x=previous_year_rating))+geom_bar(fill="blue") +facet_wrap(~is_promoted)+geom_text(stat="count", aes(label=..count..), vjust=-1.6)+labs(title="Employees by rating and promotion status")
+ggplot(data=HRTrain, aes(x=previous_year_rating))+geom_bar(fill="blue") +facet_wrap(~department)+geom_text(stat="count", aes(label=..count..), vjust=-1.6)+ labs(title="Employees by rating and department")
+ggplot(data=HRTrain, aes(x=previous_year_rating))+geom_bar(fill="blue") +facet_wrap(~education)+geom_text(stat="count", aes(label=..count..), vjust=-1.6)+labs(title="Employees by rating and education")
+### Lets check for the association between the dependent variable and 'Previous Year Rating'. The p value is less than 0.
+CrossTable(HRTrain$previous_year_rating, HRTrain$is_promoted, chisq=TRUE)
+
+## Independent Variable : Length of Service. Continuous Varaible with mean of 5.8, min of 1 and maximum of 37 years
+str(HRTrain$length_of_service)
+summary(HRTrain$length_of_service)
+qqnorm(HRTrain$length_of_service)
+ggplot(data=HRTrain, aes(y=length_of_service))+geom_boxplot()
+ggplot(data=HRTrain, aes(x=length_of_service))+geom_density()
+ggplot(data=HRTrain, aes(x=length_of_service))+geom_bar()+geom_text(stat="count", aes(label=..count..), vjust=-1)+labs(title="Employees by length of service")
+
+## Independent Variable :KPIs met 80. 65% approx employees do not satisfy this condition
+summary(HRTrain$KPIs_met..80.)
+HRTrain$KPIs_met..80.<-as.factor(HRTrain$KPIs_met..80.)
+prop.table(table(HRTrain$KPIs_met..80.))
+ggplot(data=HRTrain, aes(x=KPIs_met..80.))+geom_bar(fill="blue")+geom_text(stat="count", aes(label=..count..), vjust=-1)+labs(title="Number of employees who scored > 80 in KPIs")
+ggplot(data=HRTrain, aes(x=KPIs_met..80.))+geom_bar(fill="blue")+facet_wrap(~is_promoted)+geom_text(stat="count", aes(label=..count..), vjust=-1)+labs(title="Employees with KPIS >80 and promotion status")
+### Lets check for the association between the dependent variable and 'KPIs met 80'. The p value is less than 0.
+CrossTable(HRTrain$KPIs_met..80., HRTrain$is_promoted, chisq = TRUE)
+
+## Independent Variable : Awards Won. About 98% employees did not win any award
+summary(HRTrain$awards_won.)
+str(HRTrain$awards_won.)
+HRTrain$awards_won.<-as.factor(HRTrain$awards_won.)
+prop.table(table(HRTrain$awards_won.))
+
+### Lets check for the association between the dependent variable and 'Awards Won'. The p value is less than 0.
+CrossTable(HRTrain$awards_won., HRTrain$is_promoted, chisq = TRUE)
+ggplot(data=HRTrain, aes(x=awards_won.))+geom_bar(fill="blue")+geom_text(stat="count", aes(label=..count..), vjust=-1)+labs(title="Employees and Awards Won")
+ggplot(data=HRTrain, aes(x=awards_won.))+geom_bar(fill="blue")+facet_wrap(~is_promoted)+geom_text(stat="count", aes(label=..count..), vjust=-1)+labs(title="Employees who won awards and promotion status")
+
+## Independent Variable : Average Training Scores
+summary(HRTrain$avg_training_score)
+ggplot(data=HRTrain, aes(y=avg_training_score))+geom_boxplot()
+ggplot(data=HRTrain, aes(x= avg_training_score))+geom_density()
+
+
+# Prepare data for modeling.Though this is an imbalanced dataset, we will first start with the usual classification machine learning models
+
+## We will split the data into training and validation set. 
+set.seed(123)
+split <- sample.split(HRTrain$is_promoted, SplitRatio = 0.7)
+TrainA <- subset(HRTrain, split==TRUE)
+TrainB <- subset(HRTrain, split==FALSE)
+TrainA$agedesc<-as.factor(TrainA$agedesc)
+TrainB$agedesc<-as.factor(TrainB$agedesc)
+
+## Logistic Regression. All variables are significant except for gender and recruitment channel. 
+
+logmodel1<- glm(is_promoted ~ department+region+education+gender+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= TrainA, family=binomial)
+summary(logmodel1)
+### The accuracy is 0.93 which is approximately equal to the number of '0's in our dataset.
+predlog<-predict(logmodel1, newdata=TrainB, type="response")
+table(TrainB$is_promoted, predlog>0.5)
+### Lets look at the ROC curve and AUC figure. The AUC comes to 0.8712. 
+library(ROCR)
+ROCRpredlog<-prediction(predlog, TrainB$is_promoted)
+ROCRperflog<-performance(ROCRpredlog,"tpr","fpr")
+plot(ROCRperflog)
+auc<-performance(ROCRpredlog,"auc")
+auc@y.values
+
+### WE will create one more logistic model without the gender and recruitment channel variables to see if we can improve the performance meterics
+logmodel2<- glm(is_promoted ~ department+region+education+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= TrainA, family=binomial)
+summary(logmodel2)
+### The accuracy is 0.93 again,which is approximately equal to the number of '0's in our dataset.
+predlog2<-predict(logmodel2, newdata=TrainB, type="response")
+table(TrainB$is_promoted, predlog2>0.5)
+### Lets look at the ROC curve and AUC figure. The AUC comes to 0.8713. No change in the performance petrics
+ROCRpredlog2<-prediction(predlog2, TrainB$is_promoted)
+ROCRperflog2<-performance(ROCRpredlog2,"tpr","fpr")
+plot(ROCRperflog2)
+auc<-performance(ROCRpredlog2,"auc")
+auc@y.values
+### Summary of the classification model on the unbalanced dataset: AUC is 87%, accuracy is 93%, recall or sensitivity is 26% and precision is 80%
+
+## Decision Trees: The average training score is the most important variable. 
+treemodel<-rpart(is_promoted ~ department+region+education+gender+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= TrainA, method="class")
+plot(treemodel, uniform=TRUE, margin=0.2)
+text(treemodel,use.n=TRUE,all=TRUE, cex=0.7)
+print(treemodel)
+### Confusion matrix and performance measures
+predtree<-predict(treemodel, newdata=TrainB,type="class")
+table(TrainB$is_promoted, predtree)
+### Let's look at the ROC curve and calculate the AUC value
+predtree1<-predict(treemodel, newdata=TrainB)
+ROCRpredtree<-prediction(predtree1[,2], TrainB$is_promoted)
+ROCRperftree<-performance(ROCRpredtree,"tpr","fpr")
+plot(ROCRperftree)
+auc<-performance(ROCRpredtree,"auc")
+auc@y.values
+### Summary of the Decision Tree Model on the unbalanced dataset:Recall= 10%, Precision=92% , Accuracy =0.92%, AUC=55.17%
+
+## Random Forest : Average Training Scores and KPIs met 80 are the most important variables wrt to Mean Decrease Gini metric
+library(randomForest)
+RFmodel<- randomForest(is_promoted ~ department+region+education+gender+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= TrainA, mtry=2,ntree=100, importance=TRUE)
+RFmodel
+RFmodel$importance
+varImpPlot(RFmodel,col="blue")
+### Confusion matrix and performance measures
+predrm<-predict(RFmodel, newdata=TrainB)
+table(TrainB$is_promoted, predrm)
+predrmauc<-predict(RFmodel,newdata=TrainB, type="prob")
+rfauc<-prediction(predrmauc[,2],TrainB$is_promoted)
+rfperf<-performance(rfauc,"tpr","fpr")
+plot(rfperf)
+auc<-performance(rfauc,"auc")
+auc@y.values
+### The accuracy measures for Random Forest model are : Recall= 14%, Precision=94% , Accuracy =92.67%, AUC=85%
+
+## We saw that using the usual classification machine learning models, we are getting good accuracy but the actual performance metric of Recall is considerably low. 
+## In this case, the Type II error i.e. False Negatives is more important to us as compared to False Positives.Thus we will focus more on Recall than Precision. We will consider AUC as well for rating models.
+## We will now use model that are useful for unbalanced datasets. This includes OverSampling, UnderSampling and SMOTE i.e. Synthetic Minority Over Sampling Technique
+## We will look at logistic regression with and without cross validation and with different threshold values i.e. default threshold value of 0.5 and others like 0.4 and 0.3
+
+### Oversampling with No Cross Validation and Threshold Value of 0.5, 0.4, 0.3
+## The oversampling method gives us 34902 observations for positive and 35098 for negatives case respectively
+overbalanced<-ovun.sample(is_promoted ~ department+region+education+gender+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= TrainA,method="over", N=70000)$data
+summary(overbalanced$is_promoted)
+
+overlogmodel<- glm(is_promoted ~ department+region+education+gender+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= overbalanced, family=binomial)
+summary(overlogmodel)
+overlogpred<-predict(overlogmodel, newdata=TrainB, type="response")
+table(TrainB$is_promoted, overlogpred>0.5)
+roc.curve(TrainB$is_promoted, overlogpred)
+table(TrainB$is_promoted, overlogpred>0.4)
+table(TrainB$is_promoted, overlogpred>0.3)
+# All the above models have the AUC of 0.87, however, the Recall metric is maximum for threshold value of 0.3 and is 0.93.
+
+### Undersampling with No Cross Validation and Threshold Value of 0.5,0.4,0.3
+## The undersampling method gives us 3268 observations for positive and 3232 for negatives case respectively
+underbalanced<-ovun.sample(is_promoted ~ department+region+education+gender+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= TrainA,method="under", N=6500, seed=1)$data
+summary(underbalanced$is_promoted)
+
+underlogmodel<- glm(is_promoted ~ department+region+education+gender+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= underbalanced, family=binomial)
+summary(underlogmodel)
+underlogpred<-predict(underlogmodel, newdata=TrainB, type="response")
+table(TrainB$is_promoted, underlogpred>0.5)
+roc.curve(TrainB$is_promoted,underlogpred)
+### The model gives a number of insignificant variables that includes gender, number of trainings, recruitment channel
+### Undesampling has also increased the Recall metric to 81% compared to relatively low values in earlier models
+
+### We will create additional model without gender, recruitmentchannel and number of trainings as p value is >>0.05
+underlogmodel1<- glm(is_promoted ~ department+region+education+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= underbalanced, family=binomial)
+summary(underlogmodel1)
+underlogpred1<-predict(underlogmodel1, newdata=TrainB, type="response")
+table(TrainB$is_promoted, underlogpred1>0.5)
+roc.curve(TrainB$is_promoted,underlogpred1)
+table(TrainB$is_promoted, underlogpred1>0.4)
+table(TrainB$is_promoted, underlogpred1>0.3)
+### The Recall values are again highest for threshold of 0.3 and is 0.93. Undesampling with threshold values of 0.5 and 0.4 gives the Recall value of 0.81 and 0.88 respectively
+
+### SMOTE with No Cross Validation and Threshold Value of 0.5,0.4,0.3
+## The SMOTE method gives us 19106 observations for positive and 19260 for negatives case respectively
+syndata <- ROSE(is_promoted ~ department+region+education+gender+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= TrainA,seed=1)$data
+table(syndata$is_promoted)
+
+synlogmodel<- glm(is_promoted ~ department+region+education+gender+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= syndata, family=binomial)
+summary(synlogmodel)
+synlogpred<-predict(synlogmodel, newdata=TrainB, type="response")
+table(TrainB$is_promoted, synlogpred>0.5)
+roc.curve(TrainB$is_promoted, synlogpred)
+table(TrainB$is_promoted, synlogpred>0.4)
+table(TrainB$is_promoted, synlogpred>0.3)
+### Comparing the results of different threshold values of Logistic Regression with SMOTE technique, the Recall values are 0.91 and 0.96 for threshold of 0.4 and 0.3 respectively. AUC is 0.86.
+
+### We will now perform Cross Validation with Sampling i.e. every fold will be over and under sampled and the resulting errors will be averaged
+
+### Logistic Regression with 5 Fold Repeated Cross Validation and OverSampling
+overctrl<- trainControl(method="repeatedcv", number=5, repeats=5, sampling="up")
+set.seed(42)
+cvoverlog<-train(is_promoted ~ department+region+education+gender+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data=TrainA, method="glm", trControl= overctrl)
+summary(cvoverlog)
+cvlogpred<-predict(cvoverlog, newdata=TrainB)
+table(TrainB$is_promoted, cvlogpred)
+roc.curve(TrainB$is_promoted, cvlogpred)
+cvlogpred1<-predict(cvoverlog, newdata=TrainB, type="prob")
+table(TrainB$is_promoted, cvlogpred1[,2]>0.4)
+table(TrainB$is_promoted, cvlogpred1[,2]>0.3)
+### With a threshold of 0.5, we are getting a good Recall of 0.82 and AUC of 0.786. Recall values are 0.89 and 0.94 for 0.4 and 0.3 threshold values respectively
+
+### Logistic Regression with 5 Fold Repeated Cross Validation and UnderSampling
+underctrl<- trainControl(method="repeatedcv", number=5, repeats=5, sampling="down")
+set.seed(42)
+cvunderlog<-train(is_promoted ~ department+region+education+gender+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data=TrainA, method="glm", trControl= underctrl)
+summary(cvunderlog)
+cvlogunderpred<-predict(cvunderlog, newdata=TrainB)
+table(TrainB$is_promoted, cvlogunderpred)
+roc.curve(TrainB$is_promoted, cvlogunderpred)
+cvlogunderpred1<-predict(cvunderlog, newdata=TrainB, type="prob")
+table(TrainB$is_promoted, cvlogunderpred1[,2]>0.4)
+table(TrainB$is_promoted, cvlogunderpred1[,2]>0.3)
+### The Recall value for threshold values of 0.5, 0.4 and 0.3 are 0.81, 0.88 and 0.93 respectively. AUC is 0.785
+
+### Logistic Regression with 5 Fold Repeated Cross Validation and SMOTE
+smotectrl<- trainControl(method="repeatedcv", number=5, repeats=5, sampling="smote")
+set.seed(42)
+cvsmotelog<-train(is_promoted ~ department+region+education+gender+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data=TrainA, method="glm", trControl= smotectrl)
+summary(cvsmotelog)
+cvlogsmotepred<-predict(cvsmotelog, newdata=TrainB)
+table(TrainB$is_promoted, cvlogsmotepred)
+roc.curve(TrainB$is_promoted, cvlogsmotepred)
+cvlogsmotepred1<-predict(cvsmotelog, newdata=TrainB, type="prob")
+table(TrainB$is_promoted, cvlogsmotepred1[,2]>0.4)
+table(TrainB$is_promoted, cvlogsmotepred1[,2]>0.3)
+### AUC has decreased to 0.77 with SMOTE and Cross Validation. The Recall value is also relatively lower for various thresholds.
+### Out of all the Logistic Regression models with Sampling, we will select OverSampling with Cross Validation and Threshold Value of 0.4.
+### Performance Metrics for this model are : AUC:0.786, Recall: 0.88, Precision: 0.219 and F1 Score of 0.35
+
+
+## Random Forest with OverSampling with variable selection. 
+### With all features.
+randmodelover<-randomForest(is_promoted ~ department+region+education+gender+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= overbalanced, ntree=100, importance=TRUE)
+randmodelover
+randmodelover$importance
+randoverpred1<-predict(randmodelover,newdata=TrainB)
+table(TrainB$is_promoted,randoverpred1)
+roc.curve(TrainB$is_promoted, randoverpred1)
+## The AUC value is 0.756 and Recall is 0.64. The mean decrease Gini values are lowest for Gender, No of trainings, education and recruitment channel
+## We will create a number of models removing each of the above variables one at a time
+
+## Without Gender
+randmodelover1<-randomForest(is_promoted ~ department+region+education+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= overbalanced, ntree=100, importance=TRUE)
+randmodelover1
+randmodelover1$importance
+randoverpred2<-predict(randmodelover1,newdata=TrainB)
+table(TrainB$is_promoted,randoverpred2)
+roc.curve(TrainB$is_promoted, randoverpred2)
+
+## Without Gender, No of trainings
+randmodelover2<-randomForest(is_promoted ~ department+region+education+recruitment_channel+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= overbalanced, ntree=100, importance=TRUE)
+randmodelover2
+randmodelover2$importance
+randoverpred3<-predict(randmodelover2,newdata=TrainB)
+table(TrainB$is_promoted,randoverpred3)
+roc.curve(TrainB$is_promoted, randoverpred3)
+
+## Without Gender, No of trainings,education
+randmodelover3<-randomForest(is_promoted ~ department+region+recruitment_channel+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= overbalanced, ntree=100, importance=TRUE)
+randmodelover3
+randmodelover3$importance
+randoverpred4<-predict(randmodelover3,newdata=TrainB)
+table(TrainB$is_promoted,randoverpred4)
+roc.curve(TrainB$is_promoted, randoverpred4)
+
+## Without Gender, No of trainings, education and recruitment channel
+randmodelover4<-randomForest(is_promoted ~ department+region+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= overbalanced, ntree=100, importance=TRUE)
+randmodelover4
+randmodelover4$importance
+randoverpred5<-predict(randmodelover4,newdata=TrainB)
+table(TrainB$is_promoted,randoverpred5)
+roc.curve(TrainB$is_promoted, randoverpred5)
+
+### Comparing all the models with Random Forest and OverSampling and with Feature Selection,the best model is the one with all variables except for Gender, Education, No. of trainings and Recruitment Channel
+### Performance metrics are : Recall: 89.50%,Precision: 22.15%, F1 Score:35.51%. AUC is 0.801
+
+## Random Forest with UnderSampling with variable selection. 
+### With all features.
+randmodelunder1<-randomForest(is_promoted ~ department+region+education+gender+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= underbalanced, ntree=100, importance=TRUE)
+randmodelunder1
+randmodelunder1$importance
+randunderpred1<-predict(randmodelunder1,newdata=TrainB)
+table(TrainB$is_promoted,randunderpred1)
+roc.curve(TrainB$is_promoted, randunderpred1)
+### The performance metrics for complete set of features are: Recall: 87.93%, Precision: 23.10%, F1Score: 36.58% and AUC of 0.803
+### We will now perform Random Forest with Undersampling with feature selection. In the earlier model, features Gender, No of trainings, education, Recruitment Channel and Region are the least important.
+
+## Without Gender
+randmodelunder2<-randomForest(is_promoted ~ department+region+education+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= underbalanced, ntree=100, importance=TRUE)
+randmodelunder2
+randmodelunder2$importance
+randunderpred2<-predict(randmodelunder2,newdata=TrainB)
+table(TrainB$is_promoted,randunderpred2)
+roc.curve(TrainB$is_promoted, randunderpred2)
+
+## Without Gender, No.of Trainings
+randmodelunder3<-randomForest(is_promoted ~ department+region+education+recruitment_channel+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= underbalanced, ntree=100, importance=TRUE)
+randmodelunder3
+randmodelunder3$importance
+randunderpred3<-predict(randmodelunder3,newdata=TrainB)
+table(TrainB$is_promoted,randunderpred3)
+roc.curve(TrainB$is_promoted, randunderpred3)
+
+## Without Gender, No.of Trainings, Education
+randmodelunder4<-randomForest(is_promoted ~ department+region+recruitment_channel+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= underbalanced, ntree=100, importance=TRUE)
+randmodelunder4
+randmodelunder4$importance
+randunderpred4<-predict(randmodelunder4,newdata=TrainB)
+table(TrainB$is_promoted,randunderpred4)
+roc.curve(TrainB$is_promoted, randunderpred4)
+
+## Without Gender, No.of Trainings, Education, Recruitment Channel
+randmodelunder5<-randomForest(is_promoted ~ department+region+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= underbalanced, ntree=100, importance=TRUE)
+randmodelunder5
+randmodelunder5$importance
+randunderpred5<-predict(randmodelunder5,newdata=TrainB)
+table(TrainB$is_promoted,randunderpred5)
+roc.curve(TrainB$is_promoted, randunderpred5)
+
+## Without Gender, No.of Trainings, Education, Recruitment Channel, Region
+randmodelunder6<-randomForest(is_promoted ~ department+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= underbalanced, ntree=100, importance=TRUE)
+randmodelunder6
+randmodelunder6$importance
+randunderpred6<-predict(randmodelunder6,newdata=TrainB)
+table(TrainB$is_promoted,randunderpred6)
+roc.curve(TrainB$is_promoted, randunderpred6)
+
+### Comparing all the Random Forest models with Under Sampling and Feature Selection, the best model is the one without the features of Gender, Recruitment Channel, No of Trainings, Education and Region
+### Performance metrics are: Recall:92.71%, Precision:21.59%, F1 Score:35.02%, AUC:0.807
+
+## Random Forest with SMOTE and with Feature Selection
+## With all features
+randmodelsmote1<-randomForest(is_promoted ~ department+region+education+gender+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= syndata, ntree=100, importance=TRUE)
+randmodelsmote1
+randmodelsmote1$importance
+randsmotepred1<-predict(randmodelsmote1,newdata=TrainB)
+table(TrainB$is_promoted,randsmotepred1)
+roc.curve(TrainB$is_promoted, randsmotepred1)
+## Performance metric with all features include Recall: 81.29%, Precision: 24.77%, F1Score: 37.96% and AUC: 0.792
+
+## Without Gender
+randmodelsmote2<-randomForest(is_promoted ~ department+region+education+recruitment_channel+no_of_trainings+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= syndata, ntree=100, importance=TRUE)
+randmodelsmote2
+randmodelsmote2$importance
+randsmotepred2<-predict(randmodelsmote2,newdata=TrainB)
+table(TrainB$is_promoted,randsmotepred2)
+roc.curve(TrainB$is_promoted, randsmotepred2)
+
+## Without Gender, No of Trainings
+randmodelsmote3<-randomForest(is_promoted ~ department+region+education+recruitment_channel+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= syndata, ntree=100, importance=TRUE)
+randmodelsmote3
+randmodelsmote3$importance
+randsmotepred3<-predict(randmodelsmote3,newdata=TrainB)
+table(TrainB$is_promoted,randsmotepred3)
+roc.curve(TrainB$is_promoted, randsmotepred3)
+
+## Without Gender, No of Trainings, Education
+randmodelsmote4<-randomForest(is_promoted ~ department+region+recruitment_channel+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= syndata, ntree=100, importance=TRUE)
+randmodelsmote4
+randmodelsmote4$importance
+randsmotepred4<-predict(randmodelsmote4,newdata=TrainB)
+table(TrainB$is_promoted,randsmotepred4)
+roc.curve(TrainB$is_promoted, randsmotepred4)
+
+## Without Gender, No of Trainings, Education, Recruitment Channel
+randmodelsmote5<-randomForest(is_promoted ~ department+region+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= syndata, ntree=100, importance=TRUE)
+randmodelsmote5
+randmodelsmote5$importance
+randsmotepred5<-predict(randmodelsmote5,newdata=TrainB)
+table(TrainB$is_promoted,randsmotepred5)
+roc.curve(TrainB$is_promoted, randsmotepred5)
+
+## Without Gender, No of Trainings, Education, Recruitment Channel, Region
+randmodelsmote6<-randomForest(is_promoted ~ department+agedesc+previous_year_rating+length_of_service+KPIs_met..80.+awards_won.+avg_training_score, data= syndata, ntree=100, importance=TRUE)
+randmodelsmote6
+randmodelsmote6$importance
+randsmotepred6<-predict(randmodelsmote6,newdata=TrainB)
+table(TrainB$is_promoted,randsmotepred6)
+roc.curve(TrainB$is_promoted, randsmotepred6)
+
+### The best model with Random Forest with Feature Selection and SMOTE is the one that excludes features of Gender, Region, Recruitment Channel, Avg Training Scores and No of Trainings
+### The performance metrics for this model include: Recall:91.3%, Precision: 22%, F1Score : 35.37%, AUC:0.805
+
+# Comparing all the models, the final model selected is Random Forest with SMOTE and Feature Selection where Gender, Number of Trainings, Region, Recruitment Channel and Average Training Scores are excluded
+
+
+
+
+
+
+```
+
